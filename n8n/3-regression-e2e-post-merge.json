@@ -1,0 +1,174 @@
+[
+  {
+    "name": "Agent Orchestrator — Régression e2e post-merge",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "gp-shipping-prs",
+          "options": {}
+        },
+        "name": "Webhook GitHub (PRs)",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ],
+        "webhookId": "gp-shipping-prs"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.body.action }}",
+                "rightValue": "closed",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              },
+              {
+                "leftValue": "={{ $json.body.pull_request.merged }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equals"
+                }
+              },
+              {
+                "leftValue": "={{ $json.body.pull_request.base.ref }}",
+                "rightValue": "main",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "name": "PR mergée sur main ?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          220,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "authentication": "privateKey",
+          "command": "=/opt/agent-orchestrator/run-e2e-regression.sh --pr {{ $json.body.pull_request.number }} --sha {{ $json.body.pull_request.merge_commit_sha }}"
+        },
+        "name": "SSH — run-e2e-regression",
+        "type": "n8n-nodes-base.ssh",
+        "typeVersion": 1,
+        "position": [
+          440,
+          -80
+        ],
+        "credentials": {
+          "sshPrivateKey": {
+            "id": "REMPLACEZ_PAR_VOTRE_CREDENTIAL",
+            "name": "SSH Password account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const out = $input.first().json.stdout || '{}';\nlet parsed = {};\ntry { parsed = JSON.parse(out.trim().split('\\n').pop()); } catch (e) { parsed = { status: 'parse_error', raw: out }; }\nreturn [{ json: parsed }];"
+        },
+        "name": "Parser résultat",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          660,
+          -80
+        ]
+      },
+      {
+        "parameters": {
+          "fromEmail": "noreply@example.com",
+          "toEmail": "vous@example.com",
+          "subject": "=🧪 Agent Orchestrator — e2e post-merge PR #{{ $json.pr }} ({{ $json.status }})",
+          "emailFormat": "text",
+          "text": "=Statut : {{ $json.status }}{{ $json.reason ? ' — ' + $json.reason : '' }}\nSession : {{ $json.session || 'n/a' }}\nLog : {{ $json.log || 'n/a' }}\n\nSi une régression est détectée, une issue documentée (labels regression + needs-triage) sera créée et signalée par le monitoring.\nSuivre le run : ssh deploy@VOTRE_VPS puis tmux attach -t {{ $json.session }}",
+          "options": {}
+        },
+        "name": "Email e2e lancé",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          880,
+          -80
+        ],
+        "webhookId": "e2e-postmerge-mail-01",
+        "credentials": {
+          "smtp": {
+            "id": "REMPLACEZ_PAR_VOTRE_CREDENTIAL",
+            "name": "SMTP account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Webhook GitHub (PRs)": {
+        "main": [
+          [
+            {
+              "node": "PR mergée sur main ?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PR mergée sur main ?": {
+        "main": [
+          [
+            {
+              "node": "SSH — run-e2e-regression",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          []
+        ]
+      },
+      "SSH — run-e2e-regression": {
+        "main": [
+          [
+            {
+              "node": "Parser résultat",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parser résultat": {
+        "main": [
+          [
+            {
+              "node": "Email e2e lancé",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    }
+  }
+]

@@ -1,0 +1,63 @@
+[
+  {
+    "name": "Agent Orchestrator — E2E nightly (suite complète)",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "days",
+                "daysInterval": 1,
+                "triggerAtHour": 3,
+                "triggerAtMinute": 0
+              }
+            ]
+          }
+        },
+        "name": "Chaque nuit à 03h00",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "authentication": "privateKey",
+          "command": "/opt/agent-orchestrator/run-e2e-regression.sh --nightly"
+        },
+        "name": "SSH — run-e2e-regression nightly",
+        "type": "n8n-nodes-base.ssh",
+        "typeVersion": 1,
+        "position": [
+          220,
+          0
+        ],
+        "credentials": {
+          "sshPrivateKey": {
+            "id": "REMPLACEZ_PAR_VOTRE_CREDENTIAL",
+            "name": "SSH Password account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Chaque nuit à 03h00": {
+        "main": [
+          [
+            {
+              "node": "SSH — run-e2e-regression nightly",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    }
+  }
+]

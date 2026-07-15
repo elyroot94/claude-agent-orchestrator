@@ -1,0 +1,288 @@
+[
+  {
+    "name": "Agent Orchestrator — Lancement Agent Team",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "gp-shipping-issues",
+          "options": {}
+        },
+        "name": "Webhook GitHub (issues)",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -896,
+          -16
+        ],
+        "webhookId": "gp-shipping-issues"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.body.action }}",
+                "rightValue": "labeled",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              },
+              {
+                "leftValue": "={{ $json.body.label.name }}",
+                "rightValue": "ai-ready",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "name": "Label = ai-ready ?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -672,
+          -16
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://api.github.com/repos/OWNER/REPO/issues?labels=ai-ready&state=open&per_page=10",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "githubApi",
+          "options": {}
+        },
+        "name": "Lister issues ai-ready",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -448,
+          -96
+        ],
+        "credentials": {
+          "githubApi": {
+            "id": "REMPLACEZ_PAR_VOTRE_CREDENTIAL",
+            "name": "GitHub account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Sélection du lot : max 3 issues, jamais de mélange de modèles.\nconst EXCLUDE = ['needs-human', 'needs-clarification', 'ai-blocked',\n                 'ai-in-progress', 'blocked', 'needs-human-review'];\nconst issues = $input.all().map(i => i.json).flat();\n\nconst eligible = issues.filter(is => {\n  const labels = (is.labels || []).map(l => l.name);\n  return !labels.some(l => EXCLUDE.includes(l));\n});\n\nconst has = (is, name) => (is.labels || []).some(l => l.name === name);\n\n// Priorité : sensible > complexe > ordinaire — un modèle par lot\nconst sensitive = eligible.filter(is => has(is, 'sensitive'));\nconst complexes = eligible.filter(is => !has(is, 'sensitive') && has(is, 'complex'));\nconst ordinary  = eligible.filter(is => !has(is, 'sensitive') && !has(is, 'complex'));\n\nlet batch, model;\nif (sensitive.length > 0) {\n  batch = sensitive.slice(0, 2);        // lots sensibles plus petits\n  model = 'claude-fable-5';\n} else if (complexes.length > 0) {\n  batch = complexes.slice(0, 2);        // complexes : Fable 5, lots de 2\n  model = 'claude-fable-5';\n} else {\n  batch = ordinary.slice(0, 3);\n  model = 'claude-opus-4-8';\n}\n\nif (batch.length === 0) {\n  return [{ json: { skip: true, reason: 'Aucune issue éligible' } }];\n}\nreturn [{ json: {\n  skip: false,\n  issueNumbers: batch.map(is => is.number).join(' '),\n  model\n} }];\n"
+        },
+        "name": "Sélectionner le lot (max 3)",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -240,
+          -96
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "conditions": [
+              {
+                "leftValue": "={{ $json.skip }}",
+                "rightValue": false,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and",
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            }
+          },
+          "options": {}
+        },
+        "name": "Lot non vide ?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -16,
+          -96
+        ]
+      },
+      {
+        "parameters": {
+          "authentication": "privateKey",
+          "command": "=MODEL={{ $json.model }} /opt/agent-orchestrator/launch-team.sh {{ $json.issueNumbers }}"
+        },
+        "name": "SSH — launch-team.sh",
+        "type": "n8n-nodes-base.ssh",
+        "typeVersion": 1,
+        "position": [
+          208,
+          -176
+        ],
+        "credentials": {
+          "sshPrivateKey": {
+            "id": "REMPLACEZ_PAR_VOTRE_CREDENTIAL",
+            "name": "SSH Password account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Le script renvoie une ligne JSON sur stdout\nconst out = $input.first().json.stdout || '{}';\nlet parsed = {};\ntry { parsed = JSON.parse(out.trim().split('\\n').pop()); } catch (e) { parsed = { status: 'parse_error', raw: out }; }\nreturn [{ json: parsed }];"
+        },
+        "name": "Parser résultat",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          432,
+          -176
+        ]
+      },
+      {
+        "parameters": {
+          "fromEmail": "noreply@example.com",
+          "toEmail": "vous@example.com",
+          "subject": "=🤖 Agent Orchestrator — Team lancée ({{ $json.status }})",
+          "options": {},
+          "text": "=Statut : {{ $json.status }}\nSession tmux : {{ $json.session || 'n/a' }}\nModèle : {{ $json.model || 'n/a' }}\nIssues : {{ $json.issues || 'n/a' }}\nLog : {{ $json.log || 'n/a' }}\n{{ $json.reason ? 'Raison : ' + $json.reason : '' }}\nSuperviser : ssh deploy@VOTRE_VPS puis tmux attach -t {{ $json.session }}",
+          "emailFormat": "text"
+        },
+        "name": "Notification lancement",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          656,
+          -176
+        ],
+        "webhookId": "34507076-4771-4f0a-9251-6fa2c9d67569",
+        "credentials": {
+          "smtp": {
+            "id": "REMPLACEZ_PAR_VOTRE_CREDENTIAL",
+            "name": "SMTP account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "amount": 5,
+          "unit": "seconds"
+        },
+        "name": "Attendre propagation label",
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          336,
+          -80
+        ],
+        "webhookId": "a1b2c3d4-wait-label-propagation"
+      }
+    ],
+    "connections": {
+      "Webhook GitHub (issues)": {
+        "main": [
+          [
+            {
+              "node": "Label = ai-ready ?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Label = ai-ready ?": {
+        "main": [
+          [
+            {
+              "node": "Attendre propagation label",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          []
+        ]
+      },
+      "Lister issues ai-ready": {
+        "main": [
+          [
+            {
+              "node": "Sélectionner le lot (max 3)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Sélectionner le lot (max 3)": {
+        "main": [
+          [
+            {
+              "node": "Lot non vide ?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Lot non vide ?": {
+        "main": [
+          [
+            {
+              "node": "SSH — launch-team.sh",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "SSH — launch-team.sh": {
+        "main": [
+          [
+            {
+              "node": "Parser résultat",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parser résultat": {
+        "main": [
+          [
+            {
+              "node": "Notification lancement",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Attendre propagation label": {
+        "main": [
+          [
+            {
+              "node": "Lister issues ai-ready",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    }
+  }
+]

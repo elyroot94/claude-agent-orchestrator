@@ -1,0 +1,161 @@
+[
+  {
+    "name": "Agent Orchestrator — Monitoring Agent Teams",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "minutes",
+                "minutesInterval": 10
+              }
+            ]
+          }
+        },
+        "name": "Toutes les 10 minutes",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -880,
+          80
+        ]
+      },
+      {
+        "parameters": {
+          "authentication": "privateKey",
+          "command": "/opt/agent-orchestrator/monitor-team.sh"
+        },
+        "name": "SSH — monitor-team.sh",
+        "type": "n8n-nodes-base.ssh",
+        "typeVersion": 1,
+        "position": [
+          -656,
+          80
+        ],
+        "credentials": {
+          "sshPrivateKey": {
+            "id": "REMPLACEZ_PAR_VOTRE_CREDENTIAL",
+            "name": "SSH Password account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const out = $input.first().json.stdout || '{}';\nlet parsed = {};\ntry { parsed = JSON.parse(out.trim()); } catch (e) { parsed = { alerts: ['monitor-team.sh: sortie illisible'], raw: out }; }\nreturn [{ json: parsed }];"
+        },
+        "name": "Parser état",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -448,
+          80
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "conditions": [
+              {
+                "leftValue": "={{ ($json.alerts || []).length }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                }
+              }
+            ],
+            "combinator": "and",
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            }
+          },
+          "options": {}
+        },
+        "name": "Alertes ?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -224,
+          80
+        ]
+      },
+      {
+        "parameters": {
+          "fromEmail": "noreply@example.com",
+          "toEmail": "vous@example.com",
+          "subject": "⚠️ Agent Orchestrator — Alerte Agent Teams",
+          "options": {},
+          "text": "=⚠️ {{ ($json.alerts || []).length }} alerte(s) :\n\n- {{ ($json.alerts || []).join('\\n- ') }}\n\nSessions tmux : {{ ($json.sessions || []).map(s => s.session + ' (idle ' + s.idle_minutes + ' min)').join(', ') || 'aucune' }}\nIssues en cours : {{ ($json.issues_in_progress || []).filter(Boolean).join(', ') || 'aucune' }}\nPRs d'agents ouvertes : {{ ($json.open_prs || []).map(p => '#' + p.number + ' ' + p.title).join(' | ') || 'aucune' }}\n\nSuperviser : ssh deploy@VOTRE_VPS puis tmux attach -t <session>",
+          "emailFormat": "text"
+        },
+        "name": "Email alerte",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          0,
+          0
+        ],
+        "webhookId": "a113d02d-1f3f-417d-8535-67f19dbb6ff4",
+        "credentials": {
+          "smtp": {
+            "id": "REMPLACEZ_PAR_VOTRE_CREDENTIAL",
+            "name": "SMTP account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Toutes les 10 minutes": {
+        "main": [
+          [
+            {
+              "node": "SSH — monitor-team.sh",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "SSH — monitor-team.sh": {
+        "main": [
+          [
+            {
+              "node": "Parser état",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parser état": {
+        "main": [
+          [
+            {
+              "node": "Alertes ?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Alertes ?": {
+        "main": [
+          [
+            {
+              "node": "Email alerte",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    }
+  }
+]

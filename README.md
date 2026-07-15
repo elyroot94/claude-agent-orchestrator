@@ -8,6 +8,11 @@ Ce dépôt est le résultat d'une mise en place réelle sur un projet de product
 
 ## Le principe en une image
 
+![Architecture du pipeline](docs/architecture.svg)
+
+<details>
+<summary>Version texte du schéma (terminal-friendly)</summary>
+
 ```
    VOUS                    GITHUB                       VPS (n8n + Claude Code)
     │                        │                                │
@@ -35,6 +40,8 @@ Ce dépôt est le résultat d'une mise en place réelle sur un projet de product
     │                        │◀─── issue [REGRESSION] ────────│ si échec : issue documentée
     │  email ◀── monitoring (cron 10 min) : PRs à reviewer, escalades, régressions
 ```
+
+</details>
 
 ## La machine à états des labels
 
